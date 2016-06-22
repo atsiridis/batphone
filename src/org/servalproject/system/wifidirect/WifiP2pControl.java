@@ -40,6 +40,7 @@ import java.util.Random;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class WifiP2pControl extends AbstractExternalInterface {
     private static final String TAG = "OS3";
@@ -51,6 +52,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
     private IntentFilter intentFilter = new IntentFilter();
     private Timer serviceDiscoveryTimer = new Timer();
     private NetworkState state = NetworkState.Disabled;
+    private ReentrantLock servicePostLock = new ReentrantLock();
     private final int UNSPECIFIED_ERROR = 500;
     private final int MAX_SERVICE_LENGTH;
     private final int MAX_BINARY_DATA_SIZE;
@@ -107,6 +109,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
     /* Receive Data */
 
     private void parseResponse(List<String> services, String remoteSID) {
+        Log.d(TAG,"Parsing Response");
         int sequenceNumber = -1;
         int newSequenceNumber;
         int ackNumber=0;
@@ -131,17 +134,14 @@ public class WifiP2pControl extends AbstractExternalInterface {
                     sequenceNumber = newSequenceNumber;
                     base64data += service.substring(44);
                 } else {
-                    Log.e(TAG, "Discarding Malformed Data");
+                    Log.e(TAG,"Discarding Malformed Data: " + remoteSID + "::" + service);
+                    Log.d(TAG,"Old Seq: " + sequenceNumber + ", New Seq: " + newSequenceNumber);
                     fault = true;
                 }
             }
         }
 
         if (!fault) {
-            Log.d(TAG,"Data Received from: " + remoteSID
-                    + ", Ack: " + ackNumber
-                    + ", Seq: " + sequenceNumber
-                    + ", Data: " + base64data);
             if (base64data.length() != 0 && sequenceNumber == peerMap.get(remoteSID).getAckNumber()) {
                 Log.d(TAG, "New Sequence Received (" + sequenceNumber + ") from " + remoteSID);
                 byte[] bytes = Base64.decode(base64data, Base64.DEFAULT);
@@ -161,7 +161,15 @@ public class WifiP2pControl extends AbstractExternalInterface {
             }
 
             if (updatePost) {
+                Log.d(TAG,"New Data Received from: " + remoteSID
+                        + ", Ack: " + ackNumber
+                        + ", Seq: " + sequenceNumber
+                        + ", Data: " + base64data);
                 postPacket(remoteSID);
+            } else {
+                Log.d(TAG,"Old Data Received from: " + remoteSID
+                        + ", Ack: " + ackNumber
+                        + ", Seq: " + sequenceNumber);
             }
         }
     }
@@ -334,6 +342,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
         int end = MAX_FRAGMENT_LENGTH;
         boolean lastFragment = false;
 
+        servicePostLock.lock();
         removeServiceSet(peer.getServiceSet());
 
         while (!lastFragment) {
@@ -353,6 +362,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
         }
 
         peer.setServiceSet(serviceInfos);
+        servicePostLock.unlock();
     }
 
     private void sendBroadcast(byte[] bytes) {
@@ -453,15 +463,17 @@ public class WifiP2pControl extends AbstractExternalInterface {
 
             sb.append("socket_type=EXTERNAL\n")
                     .append("prefer_unicast=on\n")
-                    .append("broadcast.tick_ms=60000\n")
+                    .append("broadcast.tick_ms=120000\n")
                     .append("broadcast.reachable_timeout_ms=240000\n")
-                    .append("broadcast.transmit_timeout_ms=120000\n")
+                    .append("broadcast.transmit_timeout_ms=240000\n")
                     .append("broadcast.route=off\n")
                     .append("broadcast.mtu=512\n")
-                    .append("broadcast.packet_interval=5000000\n")
+                    .append("broadcast.packet_interval=5000\n")
                     .append("unicast.mtu=512\n")
-                    .append("unicast.tick_ms=0\n")
-                    .append("unicast.reachable_timeout_ms=120000\n")
+                    .append("unicast.tick_ms=120000\n")
+                    .append("unicast.reachable_timeout_ms=240000\n")
+                    .append("unicast.transmit_timeout_ms=240000\n")
+                    .append("unicast.packet_interval=5000\n")
                     .append("idle_tick_ms=120000\n");
             up(sb.toString());
         } catch (IOException e) {
