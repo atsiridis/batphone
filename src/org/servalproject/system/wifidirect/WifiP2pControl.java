@@ -405,7 +405,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
             return new WifiP2pControl(selector, loopbackMdpPort);
         }
     }
-
+/*
     public void write(){
         Log.d(TAG,"Wifi-P2P: Write");
     };
@@ -415,7 +415,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
     public void connect(){
         Log.d(TAG,"Wifi-P2P: Connect");
     };
-
+*/
     public void up() {
         Log.d(TAG,"Wifi-P2P: UP");
         state = NetworkState.Enabling;
@@ -453,14 +453,15 @@ public class WifiP2pControl extends AbstractExternalInterface {
 
             sb.append("socket_type=EXTERNAL\n")
                     .append("prefer_unicast=on\n")
-                    .append("broadcast.tick_ms=120000\n")
-                    .append("broadcast.reachable_timeout_ms=180000\n")
-                    .append("broadcast.transmit_timeout_ms=15000\n")
+                    .append("broadcast.tick_ms=60000\n")
+                    .append("broadcast.reachable_timeout_ms=240000\n")
+                    .append("broadcast.transmit_timeout_ms=120000\n")
                     .append("broadcast.route=off\n")
-                    .append("broadcast.mtu=210\n")
+                    .append("broadcast.mtu=512\n")
                     .append("broadcast.packet_interval=5000000\n")
-                    .append("unicast.tick_ms=5000\n")
-                    .append("unicast.reachable_timeout_ms=15000\n")
+                    .append("unicast.mtu=512\n")
+                    .append("unicast.tick_ms=0\n")
+                    .append("unicast.reachable_timeout_ms=120000\n")
                     .append("idle_tick_ms=120000\n");
             up(sb.toString());
         } catch (IOException e) {
@@ -494,7 +495,8 @@ public class WifiP2pControl extends AbstractExternalInterface {
 
     @Override
     public void sendPacket(byte[] remoteAddress, ByteBuffer buffer) {
-        byte[] data = buffer.array();
+        byte[] data = new byte[buffer.remaining()];
+        buffer.get(data);
         if (data.length > MAX_SERVICE_LENGTH) {
             Log.e(TAG,"Discarding Oversized Packet (" + data.length + ")");
         } else if (remoteAddress == null || remoteAddress.length == 0) {
