@@ -49,6 +49,7 @@ import org.servalproject.servaldna.SubscriberId;
 import org.servalproject.servaldna.keyring.KeyringIdentity;
 import org.servalproject.servaldna.keyring.KeyringIdentityList;
 import org.servalproject.system.bluetooth.BlueToothControl;
+import org.servalproject.system.wifidirect.WifiP2pControl;
 
 import java.io.IOException;
 import java.util.List;
@@ -203,6 +204,12 @@ public class ServalD extends ServerControl implements IJniServer
 		if (selector==null)
 			selector = new ChannelSelector();
 		return BlueToothControl.getBlueToothControl(selector, getLoopbackMdpPort());
+	}
+
+	public WifiP2pControl getWifiP2pControl() throws IOException {
+		if (selector==null)
+			selector = new ChannelSelector();
+		return WifiP2pControl.getWifiP2pControl(selector, getLoopbackMdpPort());
 	}
 
 	public static Cursor rhizomeList(final String service, final String name, final SubscriberId sender, final SubscriberId recipient)

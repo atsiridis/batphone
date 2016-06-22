@@ -15,6 +15,7 @@ import org.servalproject.servaldna.ServalDCommand;
 import org.servalproject.servaldna.ServalDFailureException;
 import org.servalproject.servaldna.ServalDInterfaceException;
 import org.servalproject.system.bluetooth.BlueToothControl;
+import org.servalproject.system.wifidirect.WifiP2pControl;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -30,6 +31,7 @@ public class NetworkManager {
 	static final String TAG = "NetworkManager";
 	public final WifiControl control;
 	public final BlueToothControl blueToothControl;
+	public final WifiP2pControl wifiP2p;
 	private static NetworkManager manager;
 	private final ServalBatPhoneApplication app;
 
@@ -110,6 +112,15 @@ public class NetworkManager {
 		onEnableChanged(app.isEnabled());
 		if (b!=null)
 			b.onEnableChanged();
+
+		// OS3: Initialize WifiP2p NSD Channel
+		WifiP2pControl wifiP2p = null;
+		try {
+			wifiP2p = app.server.getWifiP2pControl();
+		} catch (IOException e) {
+			Log.e(TAG, e.getMessage(), e);
+		}
+		this.wifiP2p = wifiP2p;
 	}
 
 	public InetAddress getAddress() throws SocketException {

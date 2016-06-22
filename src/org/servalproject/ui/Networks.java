@@ -498,6 +498,47 @@ public class Networks extends Activity implements CompoundButton.OnCheckedChange
 		}
 	};
 
+	private NetworkControl wifiP2p = new NetworkControl() {
+		@Override
+		CharSequence getTitle() {
+			return getString(R.string.wifi_p2p);
+		}
+
+		@Override
+		NetworkState getState() {
+			return app.nm.wifiP2p.getState();
+		}
+
+		@Override
+		void enable() {
+			setEnabled(true);
+			app.nm.wifiP2p.up();
+		}
+
+		@Override
+		void disable() {
+			app.nm.wifiP2p.down();
+		}
+
+		Intent getIntentAction() {
+			return new Intent(Settings.ACTION_WIFI_SETTINGS);
+		}
+
+		@Override
+		CharSequence getStatus() {
+			NetworkState state = getState();
+
+			switch (state) {
+				case Enabled: return getText(R.string.wifi_p2p_enabled);
+				case Enabling: return getText(R.string.wifi_p2p_enabling);
+				case Disabled: return getText(R.string.wifi_p2p_disabled);
+				case Disabling: return getText(R.string.wifi_p2p_disabling);
+				case Error: return getText(R.string.wifi_p2p_error);
+				default: return getText(R.string.wifi_p2p_unknown);
+			}
+		}
+	};
+
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -520,6 +561,8 @@ public class Networks extends Activity implements CompoundButton.OnCheckedChange
 		data.add(this.Adhoc);
 		if (CommotionAdhoc.isInstalled())
 			data.add(this.Commotion);
+		if (nm.wifiP2p != null)
+			data.add(this.wifiP2p);
 		adapter.setItems(data);
 		listView.setAdapter(adapter);
 	}

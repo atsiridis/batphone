@@ -145,4 +145,12 @@
 
     <string name="meshms_delivered">delivered</string>
     <string name="meshms_read">read</string>
+
+    <string name="wifi_p2p">WiFi Peer-to-Peer</string>
+    <string name="wifi_p2p_enabled">Enabled</string>
+    <string name="wifi_p2p_disabled">Disabled</string>
+    <string name="wifi_p2p_enabling">Enabling</string>
+    <string name="wifi_p2p_disabling">Disabling</string>
+    <string name="wifi_p2p_error">Error</string>
+    <string name="wifi_p2p_unknown">Unknown</string>
 </resources>
