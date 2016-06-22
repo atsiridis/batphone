@@ -95,7 +95,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
                 if (srcDevice.deviceName.length() != 22) {
                     Log.e(TAG,"ERROR: Unexpected Device Name: " + srcDevice.toString());
                 } else {
-                    receiveData(uniqueServiceNames, srcDevice.deviceName.substring(6));
+                    parseResponse(uniqueServiceNames, srcDevice.deviceName.substring(6));
                 }
             }
         };
@@ -106,10 +106,11 @@ public class WifiP2pControl extends AbstractExternalInterface {
 
     /* Receive Data */
 
-    private void receiveData(List<String> services, String remoteSID) {
+    private void parseResponse(List<String> services, String remoteSID) {
         int sequenceNumber = -1;
         int newSequenceNumber;
         int ackNumber=0;
+        boolean fault = false;
         String base64data = "";
         String serviceType;
         Collections.sort(services);
@@ -121,7 +122,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
         // TODO: Check for changes to sequence or ack between fragments
         for (String service : services) {
             serviceType = service.substring(43,44);
-            Log.d(TAG,"Data Received: " + remoteSID + "::" + service);
+
             if (serviceType.equals("X")) {
                 //Log.d(TAG,"Data Received: " + remoteSID + "::" + service);
                 newSequenceNumber = Integer.valueOf(service.substring(19, 23), 16);
@@ -130,32 +131,38 @@ public class WifiP2pControl extends AbstractExternalInterface {
                     sequenceNumber = newSequenceNumber;
                     base64data += service.substring(44);
                 } else {
-                    Log.e(TAG, "Unexpected Sequence Number Change: " + services.toString());
-                    System.exit(UNSPECIFIED_ERROR);
+                    Log.e(TAG, "Discarding Malformed Data");
+                    fault = true;
                 }
             }
         }
 
-        if (base64data.length() != 0 && sequenceNumber == peerMap.get(remoteSID).getAckNumber()) {
-            Log.d(TAG,"New Sequence Received (" + sequenceNumber + ") from " + remoteSID);
-            byte[] bytes  = Base64.decode(base64data, Base64.DEFAULT);
-            try {
-                receivedPacket(hexStringToBytes(remoteSID), bytes);
-                peerMap.get(remoteSID).incrementAckNumber();
-                updatePost = true;
-            } catch (IOException e) {
-                Log.e(TAG, e.getMessage(), e);
+        if (!fault) {
+            Log.d(TAG,"Data Received from: " + remoteSID
+                    + ", Ack: " + ackNumber
+                    + ", Seq: " + sequenceNumber
+                    + ", Data: " + base64data);
+            if (base64data.length() != 0 && sequenceNumber == peerMap.get(remoteSID).getAckNumber()) {
+                Log.d(TAG, "New Sequence Received (" + sequenceNumber + ") from " + remoteSID);
+                byte[] bytes = Base64.decode(base64data, Base64.DEFAULT);
+                try {
+                    receivedPacket(hexStringToBytes(remoteSID), bytes);
+                    peerMap.get(remoteSID).incrementAckNumber();
+                    updatePost = true;
+                } catch (IOException e) {
+                    Log.e(TAG, e.getMessage(), e);
+                }
             }
-        }
 
-        if (ackNumber == peer.getCurrentSequenceNumber() + 1) {
-            Log.d(TAG,"New Ack Received (" + ackNumber + ") from " + remoteSID);
-            peer.removePacket();
-            updatePost = true;
-        }
+            if (ackNumber == peer.getCurrentSequenceNumber() + 1) {
+                Log.d(TAG, "New Ack Received (" + ackNumber + ") from " + remoteSID);
+                peer.removePacket();
+                updatePost = true;
+            }
 
-        if (updatePost) {
-            postPacket(remoteSID);
+            if (updatePost) {
+                postPacket(remoteSID);
+            }
         }
     }
 
@@ -228,7 +235,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
         manager.addServiceRequest(channel, serviceRequest, new ActionListener() {
             @Override
             public void onSuccess() {
-                Log.d(TAG, "Service Request Added");
+                //Log.d(TAG, "Service Request Added");
             }
 
             @Override
@@ -281,19 +288,6 @@ public class WifiP2pControl extends AbstractExternalInterface {
         boolean updatePost = !peer.isNextPacket();
         peer.addPacket(bytes);
         if (updatePost) { postPacket(remoteSID); }
-    }
-
-    private void send(byte[] remoteAddress, byte[] buffer) {
-        if (remoteAddress == null || remoteAddress.length == 0) {
-            sendBroadcast(buffer);
-        } else {
-            String hexRemoteAddress = bytesToHexString(remoteAddress);
-            if (peerMap.containsKey(hexRemoteAddress)) {
-                queueData(buffer, hexRemoteAddress);
-            } else {
-                Log.w(TAG,"Discarding Data To Unknown Address: " + hexRemoteAddress);
-            }
-        }
     }
 
     private void postPacket(String remoteSID) {
@@ -500,8 +494,21 @@ public class WifiP2pControl extends AbstractExternalInterface {
 
     @Override
     public void sendPacket(byte[] remoteAddress, ByteBuffer buffer) {
-        Log.d(TAG,"Wifi-P2P: Send Packet");
-        send(remoteAddress, buffer.array());
+        byte[] data = buffer.array();
+        if (data.length > MAX_SERVICE_LENGTH) {
+            Log.e(TAG,"Discarding Oversized Packet (" + data.length + ")");
+        } else if (remoteAddress == null || remoteAddress.length == 0) {
+            Log.d(TAG,"Wifi-P2P: Sending Broadcast Packet");
+            sendBroadcast(data);
+        } else {
+            String hexRemoteAddress = bytesToHexString(remoteAddress);
+            if (peerMap.containsKey(hexRemoteAddress)) {
+                Log.d(TAG,"Wifi-P2P: Sending Packet to " + hexRemoteAddress);
+                queueData(data, hexRemoteAddress);
+            } else {
+                Log.w(TAG,"Discarding Data To Unknown Address: " + hexRemoteAddress);
+            }
+        }
     }
 
     @Override
@@ -627,7 +634,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
         public void onReceive (Context context, Intent intent){
             String action = intent.getAction();
             if (WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION.equals(action)) {
-                Log.d(TAG, "INTENT:WIFI_P2P_STATE_CHANGED_ACTION");
+                //Log.d(TAG, "INTENT:WIFI_P2P_STATE_CHANGED_ACTION");
                 int state = intent.getIntExtra(WifiP2pManager.EXTRA_WIFI_STATE, -1);
                 if (state == WifiP2pManager.WIFI_P2P_STATE_ENABLED) {
                     Log.d(TAG, "WiFi P2P Enabled");
@@ -635,7 +642,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
                     Log.d(TAG, "WiFi P2P Disabled");
                 }
             } else if (WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION.equals(action)) {
-                Log.d(TAG, "INTENT:WIFI_P2P_PEERS_CHANGED_ACTION");
+                //Log.d(TAG, "INTENT:WIFI_P2P_PEERS_CHANGED_ACTION");
                 manager.requestPeers(channel, new WifiP2pManager.PeerListListener() {
                     @Override
                     public void onPeersAvailable(WifiP2pDeviceList peers) {
@@ -643,11 +650,11 @@ public class WifiP2pControl extends AbstractExternalInterface {
                     }
                 });
             } else if (WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION.equals(action)) {
-                Log.d(TAG, "INTENT:WIFI_P2P_THIS_DEVICE_CHANGED_ACTION");
+                //Log.d(TAG, "INTENT:WIFI_P2P_THIS_DEVICE_CHANGED_ACTION");
                 WifiP2pDevice device = intent.getParcelableExtra(WifiP2pManager.EXTRA_WIFI_P2P_DEVICE);
-                Log.d(TAG, "Local Device: " + device.deviceName + "(" + device.deviceAddress + ")");
+                //Log.d(TAG, "Local Device: " + device.deviceName + "(" + device.deviceAddress + ")");
             } else if (WifiP2pManager.WIFI_P2P_DISCOVERY_CHANGED_ACTION.equals(action)) {
-                Log.d(TAG, "INTENT:WIFI_P2P_DISCOVERY_CHANGED_ACTION");
+                //Log.d(TAG, "INTENT:WIFI_P2P_DISCOVERY_CHANGED_ACTION");
                 int state = intent.getIntExtra(WifiP2pManager.EXTRA_DISCOVERY_STATE, -1);
                 if (state == WifiP2pManager.WIFI_P2P_DISCOVERY_STARTED) {
                     Log.d(TAG, "Device Discovery Has Started");
