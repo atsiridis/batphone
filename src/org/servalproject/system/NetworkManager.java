@@ -31,7 +31,7 @@ public class NetworkManager {
 	static final String TAG = "NetworkManager";
 	public final WifiControl control;
 	public final BlueToothControl blueToothControl;
-	public final WifiP2pControl wifiP2p;
+	public final WifiP2pControl wifiP2pControl;
 	private static NetworkManager manager;
 	private final ServalBatPhoneApplication app;
 
@@ -114,13 +114,13 @@ public class NetworkManager {
 			b.onEnableChanged();
 
 		// OS3: Initialize WifiP2p NSD Channel
-		WifiP2pControl wifiP2p = null;
+		WifiP2pControl wifiP2pControl = null;
 		try {
-			wifiP2p = app.server.getWifiP2pControl();
+			wifiP2pControl = app.server.getWifiP2pControl();
 		} catch (IOException e) {
 			Log.e(TAG, e.getMessage(), e);
 		}
-		this.wifiP2p = wifiP2p;
+		this.wifiP2pControl = wifiP2pControl;
 	}
 
 	public InetAddress getAddress() throws SocketException {

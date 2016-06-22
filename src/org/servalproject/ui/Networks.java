@@ -506,18 +506,18 @@ public class Networks extends Activity implements CompoundButton.OnCheckedChange
 
 		@Override
 		NetworkState getState() {
-			return app.nm.wifiP2p.getState();
+			return app.nm.wifiP2pControl.getState();
 		}
 
 		@Override
 		void enable() {
 			setEnabled(true);
-			app.nm.wifiP2p.up();
+			app.nm.wifiP2pControl.up();
 		}
 
 		@Override
 		void disable() {
-			app.nm.wifiP2p.down();
+			app.nm.wifiP2pControl.down();
 		}
 
 		Intent getIntentAction() {
@@ -561,7 +561,7 @@ public class Networks extends Activity implements CompoundButton.OnCheckedChange
 		data.add(this.Adhoc);
 		if (CommotionAdhoc.isInstalled())
 			data.add(this.Commotion);
-		if (nm.wifiP2p != null)
+		if (nm.wifiP2pControl != null)
 			data.add(this.wifiP2p);
 		adapter.setItems(data);
 		listView.setAdapter(adapter);

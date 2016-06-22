@@ -412,6 +412,16 @@ public class WifiP2pControl extends AbstractExternalInterface {
         }
     }
 
+    public void write(){
+        Log.d(TAG,"Wifi-P2P: Write");
+    };
+    public void accept(){
+        Log.d(TAG,"Wifi-P2P: Accept");
+    };
+    public void connect(){
+        Log.d(TAG,"Wifi-P2P: Connect");
+    };
+
     public void up() {
         Log.d(TAG,"Wifi-P2P: UP");
         state = NetworkState.Enabling;
@@ -484,7 +494,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
     }
 
     public NetworkState getState() {
-        Log.d(TAG,"Wifi-P2P: getState");
+        Log.d(TAG,"Wifi-P2P: getState (" + state.toString() + ")");
         return state;
     }
 
@@ -492,11 +502,6 @@ public class WifiP2pControl extends AbstractExternalInterface {
     public void sendPacket(byte[] remoteAddress, ByteBuffer buffer) {
         Log.d(TAG,"Wifi-P2P: Send Packet");
         send(remoteAddress, buffer.array());
-    }
-
-    @Override
-    public void read() {
-        Log.d(TAG,"Wifi-P2P: Read");
     }
 
     @Override
