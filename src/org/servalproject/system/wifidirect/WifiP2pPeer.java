@@ -3,16 +3,18 @@ package org.servalproject.system.wifidirect;
 import android.net.wifi.p2p.nsd.WifiP2pServiceInfo;
 import android.util.Log;
 
-import java.util.ArrayDeque;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class WifiP2pPeer {
+    private static final String TAG = "OS3";
+    private final int BUFFER_SIZE = 65536;
+    private ByteBuffer sendBuffer = ByteBuffer.allocate(BUFFER_SIZE);
+    private ByteBuffer recvBuffer = ByteBuffer.allocate(BUFFER_SIZE);
     private int seqNumber = 0;
     private int ackNumber = 0;
     private long lastSeen;
-    private ConcurrentLinkedQueue<byte[]> packetQueue = new ConcurrentLinkedQueue<byte[]>();
     private Collection<WifiP2pServiceInfo> serviceSet = new ArrayList<WifiP2pServiceInfo>();
 
     WifiP2pPeer() {
@@ -31,38 +33,16 @@ public class WifiP2pPeer {
         return ackNumber;
     }
 
-    public void incrementAckNumber() {
-        ackNumber++;
+    public void updateSequence(int ackReceived) {
+        int bytesAcknowledged = ackReceived - seqNumber;
+        sendBuffer.flip();
+        sendBuffer.position(bytesAcknowledged);
+        sendBuffer.compact();
+        seqNumber += bytesAcknowledged;
     }
 
-    public int getCurrentSequenceNumber() {
+    public int getSequenceNumber() {
         return seqNumber;
-    }
-
-    public void addPacket(byte[] packet) {
-        packetQueue.add(packet);
-        Log.d("OS3","Packet Added to Queue, " + packetQueue.size() + " pending");
-    }
-
-    public byte[] getPacket() {
-        if (packetQueue.isEmpty()) {
-            return new byte[0];
-        } else {
-            return packetQueue.peek();
-        }
-    }
-
-    public boolean isNextPacket() {
-        return !packetQueue.isEmpty();
-    }
-
-    public byte[] removePacket() {
-        if (packetQueue.isEmpty()) {
-            return new byte[0];
-        } else {
-            seqNumber++;
-            return packetQueue.remove();
-        }
     }
 
     public void setServiceSet(Collection<WifiP2pServiceInfo> serviceSet) {
@@ -73,4 +53,42 @@ public class WifiP2pPeer {
         return serviceSet;
     }
 
+    public void queuePacket(ByteBuffer packet) {
+        sendBuffer.putShort((short) packet.remaining());
+        sendBuffer.put(packet);
+        Log.d(TAG, "Send Buffer: " + sendBuffer.position());
+    }
+
+    public byte[] getPostData(int maxPostData) {
+        int count = Math.min(maxPostData, sendBuffer.position());
+        byte[] postData = new byte[count];
+
+        for (int i = 0; i < count; i++) {
+            postData[i] = sendBuffer.get(i);
+        }
+        return postData;
+    }
+
+    public void recvData(int seqNumber, byte[] data) {
+        int offset = ackNumber - seqNumber;
+        int count = data.length - offset;
+        recvBuffer.put(data, offset, count);
+        Log.d(TAG, "Receive Buffer: " + recvBuffer.position());
+        ackNumber += count;
+    }
+
+    public byte[] getPacket() {
+        if (recvBuffer.remaining() > 2) {
+            short packetSize = recvBuffer.getShort(0);
+            if (recvBuffer.position() >= packetSize + 2) {
+                byte[] packet = new byte[packetSize];
+                recvBuffer.flip();
+                recvBuffer.position(2);
+                recvBuffer.get(packet);
+                recvBuffer.compact();
+                return packet;
+            }
+        }
+        return null;
+    }
 }

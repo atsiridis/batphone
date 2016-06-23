@@ -1,9 +1,11 @@
 package org.servalproject.system.wifidirect;
 
+import android.app.Application;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.wifi.WifiManager;
 import android.net.wifi.p2p.WifiP2pDevice;
 import android.net.wifi.p2p.WifiP2pDeviceList;
 import android.net.wifi.p2p.WifiP2pManager;
@@ -53,6 +55,8 @@ public class WifiP2pControl extends AbstractExternalInterface {
     private Timer serviceDiscoveryTimer = new Timer();
     private NetworkState state = NetworkState.Disabled;
     private ReentrantLock servicePostLock = new ReentrantLock();
+    private final String DEVICE_NAME_PREFIX = "SERVAL"; // Max 6 Characters
+    private final String SERVICE_PREFIX = "X"; // Single Character
     private final int UNSPECIFIED_ERROR = 500;
     private final int MAX_SERVICE_LENGTH;
     private final int MAX_BINARY_DATA_SIZE;
@@ -60,8 +64,8 @@ public class WifiP2pControl extends AbstractExternalInterface {
     private final long expiretime = 240000000000L; // 4 min
     private final long checkPeerLostInterval = 10000L; // 10 sec
     // TODO: Find best value for these intervals
-    private final int MAX_SERVICE_DISCOVERY_INTERVAL = 15000; // in milliseconds
-    private final int MIN_SERVICE_DISCOVERY_INTERVAL = 10000; // in milliseconds
+    private final int MAX_SERVICE_DISCOVERY_INTERVAL = 20000; // in milliseconds
+    private final int MIN_SERVICE_DISCOVERY_INTERVAL = 18000; // in milliseconds
     private final boolean LEGACY_DEVICE;
 
     private WifiP2pControl(ChannelSelector selector, int loopbackMdpPort) throws IOException {
@@ -70,7 +74,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
         channel = manager.initialize(ServalBatPhoneApplication.context, ServalBatPhoneApplication.context.getMainLooper(), null);
         localSID = generateRandomHexString(16);
         LEGACY_DEVICE = (Build.VERSION.SDK_INT < 20);
-        MAX_SERVICE_LENGTH = (LEGACY_DEVICE) ? 764 : 948;
+        MAX_SERVICE_LENGTH = (LEGACY_DEVICE) ? 764 : 932;
         MAX_FRAGMENT_LENGTH = (LEGACY_DEVICE) ? 187 : MAX_SERVICE_LENGTH;
         MAX_BINARY_DATA_SIZE = MAX_SERVICE_LENGTH * 6 / 8; //(due to Base64 Encoding)
 
@@ -109,68 +113,70 @@ public class WifiP2pControl extends AbstractExternalInterface {
     /* Receive Data */
 
     private void parseResponse(List<String> services, String remoteSID) {
-        Log.d(TAG,"Parsing Response");
         int sequenceNumber = -1;
         int newSequenceNumber;
-        int ackNumber=0;
+        int ackNumber = 0;
         boolean fault = false;
-        String base64data = "";
-        String serviceType;
+        String base64Data = "";
         Collections.sort(services);
         WifiP2pPeer peer = peerMap.get(remoteSID);
         boolean updatePost = false;
 
         resetServiceDiscoveryTimer();
         // TODO: Check for valid packet structure
-        // TODO: Check for changes to sequence or ack between fragments
+        // TODO: Should all fragments have same UUID? (except frag num)
         for (String service : services) {
-            serviceType = service.substring(43,44);
+            Log.d(TAG,"Data Received: " + remoteSID + "::" + service);
+            if (service.substring(43,44).equals(SERVICE_PREFIX)) {
 
-            if (serviceType.equals("X")) {
-                //Log.d(TAG,"Data Received: " + remoteSID + "::" + service);
                 newSequenceNumber = Integer.valueOf(service.substring(19, 23), 16);
                 ackNumber = Integer.valueOf(service.substring(9, 13), 16);
                 if (sequenceNumber == -1 || sequenceNumber == newSequenceNumber) {
                     sequenceNumber = newSequenceNumber;
-                    base64data += service.substring(44);
+                    base64Data += service.substring(44);
                 } else {
-                    Log.e(TAG,"Discarding Malformed Data: " + remoteSID + "::" + service);
-                    Log.d(TAG,"Old Seq: " + sequenceNumber + ", New Seq: " + newSequenceNumber);
+                    Log.e(TAG, "Discarding Malformed Data");
                     fault = true;
                 }
             }
         }
 
         if (!fault) {
-            if (base64data.length() != 0 && sequenceNumber == peerMap.get(remoteSID).getAckNumber()) {
-                Log.d(TAG, "New Sequence Received (" + sequenceNumber + ") from " + remoteSID);
-                byte[] bytes = Base64.decode(base64data, Base64.DEFAULT);
-                try {
-                    receivedPacket(hexStringToBytes(remoteSID), bytes);
-                    peerMap.get(remoteSID).incrementAckNumber();
-                    updatePost = true;
-                } catch (IOException e) {
-                    Log.e(TAG, e.getMessage(), e);
-                }
-            }
-
-            if (ackNumber == peer.getCurrentSequenceNumber() + 1) {
-                Log.d(TAG, "New Ack Received (" + ackNumber + ") from " + remoteSID);
-                peer.removePacket();
+            byte[] bytes  = Base64.decode(base64Data, Base64.DEFAULT);
+            Log.d(TAG,"Data Received from: " + remoteSID
+                    + ", Ack: " + ackNumber
+                    + ", Seq: " + sequenceNumber
+                    + ", Bytes: " + bytes.length
+                    + ", Length: " + base64Data.length());
+            if (bytes.length + sequenceNumber > peer.getAckNumber()) {
+                Log.d(TAG,"\tNew Sequence: " + peer.getAckNumber() + " -> "
+                        + (sequenceNumber + bytes.length));
+                peer.recvData(sequenceNumber, bytes);
+                deliverPackets(remoteSID);
                 updatePost = true;
             }
-
-            if (updatePost) {
-                Log.d(TAG,"New Data Received from: " + remoteSID
-                        + ", Ack: " + ackNumber
-                        + ", Seq: " + sequenceNumber
-                        + ", Data: " + base64data);
-                postPacket(remoteSID);
-            } else {
-                Log.d(TAG,"Old Data Received from: " + remoteSID
-                        + ", Ack: " + ackNumber
-                        + ", Seq: " + sequenceNumber);
+            if (ackNumber > peer.getSequenceNumber()) {
+                Log.d(TAG,"\tNew Ack: " + peer.getSequenceNumber() + " -> " + ackNumber);
+                peer.updateSequence(ackNumber);
+                updatePost = true;
             }
+            if (updatePost) {
+                updatePost(remoteSID);
+            }
+        }
+    }
+
+    private void deliverPackets(String remoteSID) {
+        WifiP2pPeer peer = peerMap.get(remoteSID);
+
+        byte[] packet = peer.getPacket();
+        while (packet != null) {
+            try {
+                receivedPacket(hexStringToBytes(remoteSID), packet);
+            } catch (IOException e) {
+                Log.e(TAG, e.getMessage(), e);
+            }
+            packet = peer.getPacket();
         }
     }
 
@@ -255,7 +261,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
 
     private void addServiceRequest() {
         String localID  = localSID.substring(0, 4) + "-" + localSID.substring(4);
-        String query = String.format(Locale.ENGLISH, "-%s::X",  localID);
+        String query = String.format(Locale.ENGLISH, "-%s::%s", localID, SERVICE_PREFIX);
         WifiP2pUpnpServiceRequest serviceRequest = WifiP2pUpnpServiceRequest.newInstance(query);
         Log.d(TAG,"Adding Service Request: " + query);
         addServiceRequest(serviceRequest);
@@ -291,83 +297,64 @@ public class WifiP2pControl extends AbstractExternalInterface {
         });
     }
 
-    private void queueData(byte[] bytes, String remoteSID) {
+    private void queuePacket(String remoteSID, ByteBuffer packet) {
         WifiP2pPeer peer = peerMap.get(remoteSID);
-        boolean updatePost = !peer.isNextPacket();
-        peer.addPacket(bytes);
-        if (updatePost) { postPacket(remoteSID); }
+        //Log.d(TAG, "Queuing Packet(" + packet.remaining() + ") to " + remoteSID);
+        peer.queuePacket(packet);
+        updatePost(remoteSID);
     }
 
-    private void postPacket(String remoteSID) {
-        byte[] packet = peerMap.get(remoteSID).getPacket();
-        int totalBytes = packet.length;
-        boolean lastChunk = false;
-        String sData;
-        int start = 0;
-        int end = MAX_BINARY_DATA_SIZE;
-
-        while (!lastChunk) {
-            if (end >= totalBytes) {
-                end = totalBytes;
-                lastChunk = true;
-            }
-            sData = Base64.encodeToString(packet, start, end - start, Base64.NO_WRAP | Base64.NO_PADDING);
-
-            postStringData(sData, remoteSID);
-
-            start += MAX_BINARY_DATA_SIZE;
-            end += MAX_BINARY_DATA_SIZE;
-        }
-    }
-
-    private void postStringData(String sData, String remoteSID) {
-        if (sData.length() > MAX_SERVICE_LENGTH) {
-            Log.e(TAG,"More String Data Then Can be handled in single sequence");
-            System.exit(UNSPECIFIED_ERROR);
-        }
+    private void updatePost(String remoteSID) {
         WifiP2pPeer peer = peerMap.get(remoteSID);
+        byte[] postData = peer.getPostData(MAX_BINARY_DATA_SIZE);
+        //Log.d(TAG, "Updating Post(" + postData.length + ") to " + remoteSID);
+        String base64Data = Base64.encodeToString(postData, Base64.NO_WRAP | Base64.NO_PADDING);
         String uuid;
-        String ackNum = String.format(Locale.ENGLISH, "%04x", new Integer(peer.getAckNumber()));
-        String uuidPrefix = "0000" + ackNum;
-        int sequenceNumber = peer.getCurrentSequenceNumber();
-        String device = "";
+        String uuidPrefix = String.format(Locale.ENGLISH, "%08x", peer.getAckNumber());
         String uuidSuffix = remoteSID.substring(0,4) + "-" + remoteSID.substring(4);
+        int sequenceNumber = peer.getSequenceNumber();
+        String device = "";
         String service;
         int fragmentNumber = 0;
         WifiP2pUpnpServiceInfo serviceInfo;
         ArrayList<String> services;
         ArrayList<WifiP2pServiceInfo> serviceInfos = new ArrayList<WifiP2pServiceInfo>();
-        int stringLength = sData.length();
+        int stringLength = base64Data.length();
         int start = 0;
         int end = MAX_FRAGMENT_LENGTH;
         boolean lastFragment = false;
 
         servicePostLock.lock();
+        Log.d(TAG, "Posting Data For: " + remoteSID
+                + ", Ack: " + peer.getAckNumber()
+                + ", Seq: " + peer.getSequenceNumber()
+                + ", Bytes: " + postData.length
+                + ", Length: " + base64Data.length());
         removeServiceSet(peer.getServiceSet());
-
         while (!lastFragment) {
-            if (end >= stringLength) { end = stringLength; lastFragment = true; }
-            uuid = String.format(Locale.ENGLISH, "%s-%04d-%04x-%s", uuidPrefix, new Integer(fragmentNumber), new Integer(sequenceNumber), uuidSuffix);
-            service = sData.substring(start,end);
+            if (end >= stringLength) {
+                end = stringLength;
+                lastFragment = true;
+            }
+            uuid = String.format(Locale.ENGLISH, "%s-%04d-%04x-%s", uuidPrefix, fragmentNumber++, sequenceNumber, uuidSuffix);
+            service = base64Data.substring(start, end);
             services = new ArrayList<String>();
-            services.add("X" + service);
-
+            services.add(SERVICE_PREFIX + service);
             serviceInfo = WifiP2pUpnpServiceInfo.newInstance(uuid, device, services);
             addLocalService(serviceInfo);
-            Log.d(TAG,"Adding Service Info: " + uuid + "::X" + service);
+            //Log.d(TAG, "Adding Service Info: " + uuid + "::" + SERVICE_PREFIX + service);
             serviceInfos.add(serviceInfo);
 
             start += MAX_FRAGMENT_LENGTH;
             end += MAX_FRAGMENT_LENGTH;
         }
-
         peer.setServiceSet(serviceInfos);
         servicePostLock.unlock();
     }
 
-    private void sendBroadcast(byte[] bytes) {
+    private void sendBroadcast(ByteBuffer bytes) {
         for (String key : peerMap.keySet()) {
-            queueData(bytes, key);
+            queuePacket(key, bytes);
         }
     }
 
@@ -415,31 +402,26 @@ public class WifiP2pControl extends AbstractExternalInterface {
             return new WifiP2pControl(selector, loopbackMdpPort);
         }
     }
-/*
-    public void write(){
-        Log.d(TAG,"Wifi-P2P: Write");
-    };
-    public void accept(){
-        Log.d(TAG,"Wifi-P2P: Accept");
-    };
-    public void connect(){
-        Log.d(TAG,"Wifi-P2P: Connect");
-    };
-*/
+
     public void up() {
         Log.d(TAG,"Wifi-P2P: UP");
-        state = NetworkState.Enabling;
-        setDeviceName("SERVAL" + localSID);
-        startDeviceDiscovery();
-        checkLostPeers();
-        ServalBatPhoneApplication.context.registerReceiver(receiver,intentFilter);
-        addServiceRequest();
-        setServiceDiscoveryTimer();
-        config();
-        state = NetworkState.Enabled;
+        WifiManager wifi = (WifiManager) ServalBatPhoneApplication.context.getSystemService(Context.WIFI_SERVICE);
+        if (wifi.isWifiEnabled()){
+            state = NetworkState.Enabling;
+            setDeviceName(DEVICE_NAME_PREFIX + localSID);
+            startDeviceDiscovery();
+            checkLostPeers();
+            ServalBatPhoneApplication.context.registerReceiver(receiver,intentFilter);
+            addServiceRequest();
+            setServiceDiscoveryTimer();
+            config();
+            state = NetworkState.Enabled;
+        } else {
+            Log.e(TAG, "Cannot Enable WifiP2p, Wifi is Disabled");
+        }
     }
 
-    public void config() {
+    private void config() {
         try {
             StringBuilder sb = new StringBuilder();
 
@@ -463,18 +445,18 @@ public class WifiP2pControl extends AbstractExternalInterface {
 
             sb.append("socket_type=EXTERNAL\n")
                     .append("prefer_unicast=on\n")
-                    .append("broadcast.tick_ms=120000\n")
+                    .append("broadcast.tick_ms=30000\n")
                     .append("broadcast.reachable_timeout_ms=240000\n")
                     .append("broadcast.transmit_timeout_ms=240000\n")
                     .append("broadcast.route=off\n")
                     .append("broadcast.mtu=512\n")
-                    .append("broadcast.packet_interval=5000\n")
+                    .append("broadcast.packet_interval=5000000\n")
                     .append("unicast.mtu=512\n")
                     .append("unicast.tick_ms=120000\n")
                     .append("unicast.reachable_timeout_ms=240000\n")
                     .append("unicast.transmit_timeout_ms=240000\n")
-                    .append("unicast.packet_interval=5000\n")
-                    .append("idle_tick_ms=120000\n");
+                    .append("unicast.packet_interval=5000000\n")
+                    .append("idle_tick_ms=30000\n");
             up(sb.toString());
         } catch (IOException e) {
             Log.e(TAG, e.getMessage(), e);
@@ -506,35 +488,20 @@ public class WifiP2pControl extends AbstractExternalInterface {
     }
 
     @Override
-    public void sendPacket(byte[] remoteAddress, ByteBuffer buffer) {
-        byte[] data = new byte[buffer.remaining()];
-        buffer.get(data);
-        if (data.length > MAX_SERVICE_LENGTH) {
-            Log.e(TAG,"Discarding Oversized Packet (" + data.length + ")");
-        } else if (remoteAddress == null || remoteAddress.length == 0) {
-            Log.d(TAG,"Wifi-P2P: Sending Broadcast Packet");
-            sendBroadcast(data);
+    public void sendPacket(byte[] remoteAddress, ByteBuffer packet) {
+        int length = packet.remaining();
+        if (remoteAddress == null || remoteAddress.length == 0) {
+            Log.d(TAG,"Wifi-P2P: Sending Broadcast Packet, Bytes: " + length);
+            sendBroadcast(packet);
         } else {
             String hexRemoteAddress = bytesToHexString(remoteAddress);
             if (peerMap.containsKey(hexRemoteAddress)) {
-                Log.d(TAG,"Wifi-P2P: Sending Packet to " + hexRemoteAddress);
-                queueData(data, hexRemoteAddress);
+                Log.d(TAG,"Wifi-P2P: Sending Packet To: " + hexRemoteAddress + ", Bytes: " + length);
+                queuePacket(hexRemoteAddress, packet);
             } else {
                 Log.w(TAG,"Discarding Data To Unknown Address: " + hexRemoteAddress);
             }
         }
-    }
-
-    @Override
-    public SelectableChannel getChannel() throws IOException {
-        Log.d(TAG,"Wifi-P2P: getChannel");
-        return socket.getChannel();
-    }
-
-    @Override
-    public int getInterest() {
-        Log.d(TAG,"Wifi-P2P: getInterest");
-        return SelectionKey.OP_READ;
     }
 
     /* Util */
@@ -605,7 +572,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
         String remoteSID;
 
         for (WifiP2pDevice peer : peers) {
-            if (peer.deviceName.matches("SERVAL[[0-9][a-f]]{16}")) {
+            if (peer.deviceName.matches(DEVICE_NAME_PREFIX + "[[0-9][a-f]]{16}")) {
                 remoteSID = peer.deviceName.substring(6);
                 if (!peerMap.containsKey(remoteSID)) {
                     peerMap.put(remoteSID,new WifiP2pPeer());
