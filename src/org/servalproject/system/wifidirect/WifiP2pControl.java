@@ -32,6 +32,7 @@ import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectableChannel;
 import java.nio.channels.SelectionKey;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -65,7 +66,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
     private final long checkPeerLostInterval = 10000L; // 10 sec
     // TODO: Find best value for these intervals
     private final int MAX_SERVICE_DISCOVERY_INTERVAL = 20000; // in milliseconds
-    private final int MIN_SERVICE_DISCOVERY_INTERVAL = 18000; // in milliseconds
+    private final int MIN_SERVICE_DISCOVERY_INTERVAL = 15000; // in milliseconds
     private final boolean LEGACY_DEVICE;
 
     private WifiP2pControl(ChannelSelector selector, int loopbackMdpPort) throws IOException {
@@ -126,7 +127,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
         // TODO: Check for valid packet structure
         // TODO: Should all fragments have same UUID? (except frag num)
         for (String service : services) {
-            Log.d(TAG,"Data Received: " + remoteSID + "::" + service);
+            //Log.d(TAG,"Data Received: " + remoteSID + "::" + service);
             if (service.substring(43,44).equals(SERVICE_PREFIX)) {
 
                 newSequenceNumber = Integer.valueOf(service.substring(19, 23), 16);
@@ -172,6 +173,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
         byte[] packet = peer.getPacket();
         while (packet != null) {
             try {
+                Log.d(TAG + "X",remoteSID + " -> [" + md5sum(packet) + "](" + packet.length + ")");
                 receivedPacket(hexStringToBytes(remoteSID), packet);
             } catch (IOException e) {
                 Log.e(TAG, e.getMessage(), e);
@@ -287,7 +289,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
         manager.addLocalService(channel, serviceInfo, new ActionListener() {
             @Override
             public void onSuccess() {
-                Log.d(TAG,"Local Service Added");
+                //Log.d(TAG,"Local Service Added");
             }
 
             @Override
@@ -299,7 +301,14 @@ public class WifiP2pControl extends AbstractExternalInterface {
 
     private void queuePacket(String remoteSID, ByteBuffer packet) {
         WifiP2pPeer peer = peerMap.get(remoteSID);
-        //Log.d(TAG, "Queuing Packet(" + packet.remaining() + ") to " + remoteSID);
+        int count = packet.remaining();
+        int offset = packet.position();
+        byte[] bytes = new byte[count];
+        for (int i = 0; i < count; i++) {
+            bytes[i] = packet.get(offset + i);
+        }
+
+        Log.d(TAG + "X",remoteSID + " <- [" + md5sum(bytes) + "](" + bytes.length + ")");
         peer.queuePacket(packet);
         updatePost(remoteSID);
     }
@@ -382,7 +391,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
         manager.removeLocalService(channel, serviceinfo ,new ActionListener() {
             @Override
             public void onSuccess() {
-                Log.d(TAG,"Local Service removed");
+                //Log.d(TAG,"Local Service removed");
             }
 
             @Override
@@ -445,17 +454,17 @@ public class WifiP2pControl extends AbstractExternalInterface {
 
             sb.append("socket_type=EXTERNAL\n")
                     .append("prefer_unicast=on\n")
-                    .append("broadcast.tick_ms=30000\n")
+                    .append("broadcast.tick_ms=120000\n")
                     .append("broadcast.reachable_timeout_ms=240000\n")
                     .append("broadcast.transmit_timeout_ms=240000\n")
                     .append("broadcast.route=off\n")
-                    .append("broadcast.mtu=512\n")
-                    .append("broadcast.packet_interval=5000000\n")
-                    .append("unicast.mtu=512\n")
+                    .append("broadcast.mtu=256\n")
+                    .append("broadcast.packet_interval=10000000\n")
+                    .append("unicast.mtu=256\n")
                     .append("unicast.tick_ms=120000\n")
                     .append("unicast.reachable_timeout_ms=240000\n")
                     .append("unicast.transmit_timeout_ms=240000\n")
-                    .append("unicast.packet_interval=5000000\n")
+                    .append("unicast.packet_interval=10000000\n")
                     .append("idle_tick_ms=30000\n");
             up(sb.toString());
         } catch (IOException e) {
@@ -483,7 +492,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
     }
 
     public NetworkState getState() {
-        Log.d(TAG,"Wifi-P2P: getState (" + state.toString() + ")");
+        //Log.d(TAG,"Wifi-P2P: getState (" + state.toString() + ")");
         return state;
     }
 
@@ -522,6 +531,16 @@ public class WifiP2pControl extends AbstractExternalInterface {
             hexString += Integer.toHexString(randomGenerator.nextInt(16));
         }
         return hexString;
+    }
+
+    private String md5sum(byte[] bytes) {
+        try {
+            MessageDigest digester = MessageDigest.getInstance("MD5");
+            return bytesToHexString(digester.digest(bytes));
+        } catch (Exception e) {
+            Log.wtf(TAG,"Exception: " + e);
+            return "";
+        }
     }
 
     /* Reflection */
@@ -570,9 +589,11 @@ public class WifiP2pControl extends AbstractExternalInterface {
     private void updatePeerList(WifiP2pDeviceList devices) {
         Collection<WifiP2pDevice> peers = devices.getDeviceList();
         String remoteSID;
-
+        int wifiPeers = peers.size();
+        int servalPeers = 0;
         for (WifiP2pDevice peer : peers) {
             if (peer.deviceName.matches(DEVICE_NAME_PREFIX + "[[0-9][a-f]]{16}")) {
+                servalPeers++;
                 remoteSID = peer.deviceName.substring(6);
                 if (!peerMap.containsKey(remoteSID)) {
                     peerMap.put(remoteSID,new WifiP2pPeer());
@@ -585,6 +606,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
                 } else {
                     peerMap.get(remoteSID).resetLastSeen();
                 }
+                Log.d(TAG, "Serval Peers: " + servalPeers + "/" + wifiPeers);
             }
         }
     }

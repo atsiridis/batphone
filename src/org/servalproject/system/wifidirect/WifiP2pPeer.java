@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 
 public class WifiP2pPeer {
-    private static final String TAG = "OS3";
+    private static final String TAG = "OS3PEER";
     private final int BUFFER_SIZE = 65536;
     private ByteBuffer sendBuffer = ByteBuffer.allocate(BUFFER_SIZE);
     private ByteBuffer recvBuffer = ByteBuffer.allocate(BUFFER_SIZE);
@@ -33,11 +33,16 @@ public class WifiP2pPeer {
         return ackNumber;
     }
 
-    public void updateSequence(int ackReceived) {
+    public synchronized void updateSequence(int ackReceived) {
         int bytesAcknowledged = ackReceived - seqNumber;
         sendBuffer.flip();
         sendBuffer.position(bytesAcknowledged);
         sendBuffer.compact();
+        Log.d(TAG, "Send Buffer: " + sendBuffer.position());
+        if (sendBuffer.position() <= 1024) {
+            Log.d(TAG, "Sending Notify, Send Buffer: " + sendBuffer.position());
+            try { this.notifyAll(); } catch (Exception e) { Log.e(TAG, "Exception: " + e.getMessage(), e); }
+        }
         seqNumber += bytesAcknowledged;
     }
 
@@ -53,13 +58,17 @@ public class WifiP2pPeer {
         return serviceSet;
     }
 
-    public void queuePacket(ByteBuffer packet) {
+    public synchronized void queuePacket(ByteBuffer packet) {
+        if (sendBuffer.position() > 1024) {
+            Log.d(TAG, "Waiting for Buffer To Drain, Send Buffer: " + sendBuffer.position());
+            try { this.wait(); } catch (Exception e) { Log.e(TAG, "Exception: " + e.getMessage(), e); }
+        }
         sendBuffer.putShort((short) packet.remaining());
         sendBuffer.put(packet);
         Log.d(TAG, "Send Buffer: " + sendBuffer.position());
     }
 
-    public byte[] getPostData(int maxPostData) {
+    public synchronized byte[] getPostData(int maxPostData) {
         int count = Math.min(maxPostData, sendBuffer.position());
         byte[] postData = new byte[count];
 
@@ -69,15 +78,15 @@ public class WifiP2pPeer {
         return postData;
     }
 
-    public void recvData(int seqNumber, byte[] data) {
+    public synchronized void recvData(int seqNumber, byte[] data) {
         int offset = ackNumber - seqNumber;
         int count = data.length - offset;
         recvBuffer.put(data, offset, count);
-        Log.d(TAG, "Receive Buffer: " + recvBuffer.position());
+        //Log.d(TAG, "Receive Buffer: " + recvBuffer.position());
         ackNumber += count;
     }
 
-    public byte[] getPacket() {
+    public synchronized byte[] getPacket() {
         if (recvBuffer.remaining() > 2) {
             short packetSize = recvBuffer.getShort(0);
             if (recvBuffer.position() >= packetSize + 2) {
