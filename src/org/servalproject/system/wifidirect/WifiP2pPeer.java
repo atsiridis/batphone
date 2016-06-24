@@ -8,10 +8,11 @@ import java.util.ArrayList;
 import java.util.Collection;
 
 public class WifiP2pPeer {
-    private static final String TAG = "OS3PEER";
+    private static final String TAG = "OS3";
     private final int BUFFER_SIZE = 65536;
     private ByteBuffer sendBuffer = ByteBuffer.allocate(BUFFER_SIZE);
     private ByteBuffer recvBuffer = ByteBuffer.allocate(BUFFER_SIZE);
+    private Object bufferReady;
     private int seqNumber = 0;
     private int ackNumber = 0;
     private long lastSeen;
@@ -39,9 +40,10 @@ public class WifiP2pPeer {
         sendBuffer.position(bytesAcknowledged);
         sendBuffer.compact();
         Log.d(TAG, "Send Buffer: " + sendBuffer.position());
-        if (sendBuffer.position() <= 1024) {
-            Log.d(TAG, "Sending Notify, Send Buffer: " + sendBuffer.position());
-            try { this.notifyAll(); } catch (Exception e) { Log.e(TAG, "Exception: " + e.getMessage(), e); }
+
+        if (sendBuffer.position() <= 2048) {
+            Log.d(TAG, "Sending Notify");
+            synchronized (bufferReady) { bufferReady.notify(); }
         }
         seqNumber += bytesAcknowledged;
     }
@@ -59,9 +61,14 @@ public class WifiP2pPeer {
     }
 
     public synchronized void queuePacket(ByteBuffer packet) {
-        if (sendBuffer.position() > 1024) {
-            Log.d(TAG, "Waiting for Buffer To Drain, Send Buffer: " + sendBuffer.position());
-            try { this.wait(); } catch (Exception e) { Log.e(TAG, "Exception: " + e.getMessage(), e); }
+        if (sendBuffer.position() > 2048) {
+            synchronized (bufferReady) {
+                try {
+                    bufferReady.wait();
+                } catch (Exception e) {
+                    Log.wtf(TAG, "Overloading Queue");
+                }
+            }
         }
         sendBuffer.putShort((short) packet.remaining());
         sendBuffer.put(packet);

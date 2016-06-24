@@ -423,7 +423,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
             ServalBatPhoneApplication.context.registerReceiver(receiver,intentFilter);
             addServiceRequest();
             setServiceDiscoveryTimer();
-            config();
+            config_bt();
             state = NetworkState.Enabled;
         } else {
             Log.e(TAG, "Cannot Enable WifiP2p, Wifi is Disabled");
@@ -467,6 +467,26 @@ public class WifiP2pControl extends AbstractExternalInterface {
                     .append("unicast.packet_interval=10000000\n")
                     .append("idle_tick_ms=30000\n");
             up(sb.toString());
+        } catch (IOException e) {
+            Log.e(TAG, e.getMessage(), e);
+        }
+    }
+
+    private void config_bt() {
+        try {
+            String sb = "socket_type=EXTERNAL\n" +
+                    "prefer_unicast=on\n" +
+                    "broadcast.tick_ms=120000\n" +
+                    "broadcast.reachable_timeout_ms=180000\n" +
+                    "broadcast.transmit_timeout_ms=15000\n" +
+                    "broadcast.route=off\n" +
+                    "broadcast.mtu=210\n" +
+                    "broadcast.packet_interval=5000000\n" +
+                    "unicast.tick_ms=5000\n" +
+                    "unicast.reachable_timeout_ms=15000\n" +
+                    "idle_tick_ms=120000\n";
+
+            up(sb);
         } catch (IOException e) {
             Log.e(TAG, e.getMessage(), e);
         }
@@ -606,7 +626,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
                 } else {
                     peerMap.get(remoteSID).resetLastSeen();
                 }
-                Log.d(TAG, "Serval Peers: " + servalPeers + "/" + wifiPeers);
+                Log.d(TAG, "Serval Peers: " + servalPeers + "/" + wifiPeers + "/" + peerMap.size());
             }
         }
     }
