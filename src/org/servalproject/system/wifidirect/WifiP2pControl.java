@@ -20,6 +20,7 @@ import android.os.Build;
 import android.util.Base64;
 import android.util.Log;
 
+import org.servalproject.R;
 import org.servalproject.ServalBatPhoneApplication;
 import org.servalproject.servaldna.AbstractExternalInterface;
 import org.servalproject.servaldna.ChannelSelector;
@@ -91,6 +92,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
         setResponseListener();
 
         Log.d(TAG,"##################### Initialized New WifiP2pControl #####################");
+        Log.v(TAG,"manifest_id: " + R.string.manifest_id);
     }
 
     /* Init */

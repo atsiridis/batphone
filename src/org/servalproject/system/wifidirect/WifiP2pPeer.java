@@ -12,7 +12,7 @@ public class WifiP2pPeer {
     private final int BUFFER_SIZE = 65536;
     private ByteBuffer sendBuffer = ByteBuffer.allocate(BUFFER_SIZE);
     private ByteBuffer recvBuffer = ByteBuffer.allocate(BUFFER_SIZE);
-    private Object bufferReady;
+    private Object bufferReady = new Object();
     private int seqNumber = 0;
     private int ackNumber = 0;
     private long lastSeen;
