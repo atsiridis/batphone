@@ -10,11 +10,13 @@ import java.util.Collection;
 public class WifiP2pPeer {
     private static final String TAG = "OS3";
     private final int BUFFER_SIZE = 65536;
+    private final int BUFFER_THRESH = 1024;
     private ByteBuffer sendBuffer = ByteBuffer.allocate(BUFFER_SIZE);
     private ByteBuffer recvBuffer = ByteBuffer.allocate(BUFFER_SIZE);
     private Object bufferReady = new Object();
     private int seqNumber = 0;
     private int ackNumber = 0;
+    public boolean isFull = false;
     private long lastSeen;
     private Collection<WifiP2pServiceInfo> serviceSet = new ArrayList<WifiP2pServiceInfo>();
 
@@ -40,11 +42,7 @@ public class WifiP2pPeer {
         sendBuffer.position(bytesAcknowledged);
         sendBuffer.compact();
         Log.d(TAG, "Send Buffer: " + sendBuffer.position());
-
-        if (sendBuffer.position() <= 2048) {
-            Log.d(TAG, "Sending Notify");
-            synchronized (bufferReady) { bufferReady.notify(); }
-        }
+        isFull = (sendBuffer.position() >= BUFFER_THRESH);
         seqNumber += bytesAcknowledged;
     }
 
@@ -61,18 +59,9 @@ public class WifiP2pPeer {
     }
 
     public synchronized void queuePacket(ByteBuffer packet) {
-        if (sendBuffer.position() > 2048) {
-            synchronized (bufferReady) {
-                try {
-                    bufferReady.wait();
-                } catch (Exception e) {
-                    Log.wtf(TAG, "Overloading Queue");
-                }
-            }
-        }
         sendBuffer.putShort((short) packet.remaining());
         sendBuffer.put(packet);
-        Log.d(TAG, "Send Buffer: " + sendBuffer.position());
+        isFull = (sendBuffer.position() >= BUFFER_THRESH);
     }
 
     public synchronized byte[] getPostData(int maxPostData) {

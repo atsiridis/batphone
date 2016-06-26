@@ -22,8 +22,8 @@ import android.util.Log;
 
 import org.servalproject.R;
 import org.servalproject.ServalBatPhoneApplication;
-import org.servalproject.servaldna.AbstractExternalInterface;
 import org.servalproject.servaldna.ChannelSelector;
+import org.servalproject.servaldna.AbstractExternalInterface;
 import org.servalproject.system.NetworkState;
 
 import java.io.IOException;
@@ -57,7 +57,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
     private Timer serviceDiscoveryTimer = new Timer();
     private NetworkState state = NetworkState.Disabled;
     private ReentrantLock servicePostLock = new ReentrantLock();
-    private final String DEVICE_NAME_PREFIX = "SERVAL"; // Max 6 Characters
+    private final String DEVICE_NAME_PREFIX = "SERV@L"; // Max 6 Characters
     private final String SERVICE_PREFIX = "X"; // Single Character
     private final int UNSPECIFIED_ERROR = 500;
     private final int MAX_SERVICE_LENGTH;
@@ -92,7 +92,6 @@ public class WifiP2pControl extends AbstractExternalInterface {
         setResponseListener();
 
         Log.d(TAG,"##################### Initialized New WifiP2pControl #####################");
-        Log.v(TAG,"manifest_id: " + R.string.manifest_id);
     }
 
     /* Init */
@@ -303,16 +302,17 @@ public class WifiP2pControl extends AbstractExternalInterface {
 
     private void queuePacket(String remoteSID, ByteBuffer packet) {
         WifiP2pPeer peer = peerMap.get(remoteSID);
-        int count = packet.remaining();
-        int offset = packet.position();
-        byte[] bytes = new byte[count];
-        for (int i = 0; i < count; i++) {
-            bytes[i] = packet.get(offset + i);
+        if (!peer.isFull) {
+            int count = packet.remaining();
+            int offset = packet.position();
+            byte[] bytes = new byte[count];
+            for (int i = 0; i < count; i++) {
+                bytes[i] = packet.get(offset + i);
+            }
+            Log.d(TAG + "X", remoteSID + " <- [" + md5sum(bytes) + "](" + bytes.length + ")");
+            peer.queuePacket(packet);
+            updatePost(remoteSID);
         }
-
-        Log.d(TAG + "X",remoteSID + " <- [" + md5sum(bytes) + "](" + bytes.length + ")");
-        peer.queuePacket(packet);
-        updatePost(remoteSID);
     }
 
     private void updatePost(String remoteSID) {
