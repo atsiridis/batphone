@@ -206,6 +206,8 @@ public class ServalD extends ServerControl implements IJniServer
 		return BlueToothControl.getBlueToothControl(selector, getLoopbackMdpPort());
 	}
 
+	/* Returns a new WifiP2pControl object. Will return null if Wifi P2P Service Discovery is not
+	 supported on the device (API < 16). */
 	public WifiP2pControl getWifiP2pControl() throws IOException {
 		if (selector==null)
 			selector = new ChannelSelector();

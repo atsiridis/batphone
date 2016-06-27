@@ -113,7 +113,6 @@ public class NetworkManager {
 		if (b!=null)
 			b.onEnableChanged();
 
-		// OS3: Initialize WifiP2p NSD Channel
 		WifiP2pControl wifiP2pControl = null;
 		try {
 			wifiP2pControl = app.server.getWifiP2pControl();

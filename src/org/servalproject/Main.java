@@ -150,6 +150,8 @@ public class Main extends Activity implements OnClickListener {
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
+		// TODO: Need to change WifiP2pControl to not conduct network operations on main thread.
+		// Following lines change policy to allow networking on main thread. This will be fixed.
 		StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
 		StrictMode.setThreadPolicy(policy);
 		this.app = (ServalBatPhoneApplication) this.getApplication();

@@ -146,6 +146,7 @@
     <string name="meshms_delivered">delivered</string>
     <string name="meshms_read">read</string>
 
+    <!-- WifiP2p related strings -->
     <string name="wifi_p2p">WiFi Peer-to-Peer</string>
     <string name="wifi_p2p_enabled">Enabled</string>
     <string name="wifi_p2p_disabled">Disabled</string>
