@@ -44,6 +44,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 // TODO: Do not conduct network operations on main thread.
+// TODO: Wrap sequence/acknowledgement numbers
 
 public class WifiP2pControl extends AbstractExternalInterface {
     private static final String TAG = "OS3";
@@ -382,7 +383,7 @@ public class WifiP2pControl extends AbstractExternalInterface {
     /* Broadcasts packets by calling queuePacket for each known peer */
     private void sendBroadcast(ByteBuffer bytes) {
         for (String key : peerList.keySet()) {
-            queuePacket(key, bytes);
+            queuePacket(key, bytes.duplicate());
         }
     }
 
